@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>병목 문장 이해 실험</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<!-- ══════════ 1. 시작 화면 ══════════ -->
+<section id="screen-start" class="screen container">
+  <h1>병목 문장 독해 실험</h1>
+  <p class="subtitle">
+    한국어 과학 지문의 문법 구조가 독해에 미치는 영향을 측정합니다.
+    예상 소요 시간 약 5~7분.
+  </p>
+
+  <div class="card">
+    <h2>실험 안내</h2>
+    <ol class="guide-list">
+      <li>과학 지문을 <strong>문장 단위</strong>로 하나씩 읽습니다.</li>
+      <li>각 문장을 읽고 이해했다고 판단되면 <span class="key-hint">Space</span> 또는 <strong>다음 문장</strong> 버튼을 눌러 넘깁니다.</li>
+      <li>이전 문장으로 돌아가려면 <span class="key-hint">←</span> 키 또는 <strong>이전</strong> 버튼을 누릅니다.</li>
+      <li>지문을 다 읽은 후 이해 문항 6개에 답합니다.</li>
+    </ol>
+    <div class="hint">
+      학교 시험을 볼 때처럼 <strong>진지하게, 이해할 때까지</strong> 읽어주세요.
+      대충 넘기면 실험 데이터가 무효 처리됩니다.
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>참가자 정보</h2>
+
+    <div class="form-row">
+      <label for="pid">참가자 ID (예: 3학년 5반 → 3-5-이름 이니셜)</label>
+      <input type="text" id="pid" placeholder="예: 3-5-KDS" autocomplete="off" />
+    </div>
+
+    <div class="form-row">
+      <label for="grade">최근 모의고사 국어 등급</label>
+      <select id="grade">
+        <option value="">선택하세요</option>
+        <option value="1">1등급</option>
+        <option value="2">2등급</option>
+        <option value="3">3등급</option>
+        <option value="4">4등급</option>
+        <option value="5">5등급</option>
+        <option value="6">6등급</option>
+        <option value="7">7~9등급</option>
+        <option value="none">응시 경험 없음</option>
+      </select>
+    </div>
+
+    <div class="form-row">
+      <label for="prior">열팽창·바이메탈 관련 배경지식 정도</label>
+      <select id="prior">
+        <option value="">선택하세요</option>
+        <option value="0">전혀 모른다</option>
+        <option value="1">이름만 들어봤다</option>
+        <option value="2">대략적으로 안다</option>
+        <option value="3">잘 안다 (과학 심화 학습자)</option>
+      </select>
+    </div>
+
+    <div id="start-err" class="error" hidden></div>
+
+    <div class="actions">
+      <button id="btn-start">실험 시작</button>
+    </div>
+  </div>
+
+  <p class="footer-note">
+    수집된 데이터는 개인 탐구 목적으로만 사용되며 익명 처리됩니다.
+  </p>
+</section>
+
+<!-- ══════════ 2. 읽기 화면 ══════════ -->
+<section id="screen-read" class="screen container" hidden>
+  <h1>지문 읽기</h1>
+  <p class="subtitle">
+    이해할 때까지 읽고 다음 문장으로 넘기세요. 앞으로 돌아갈 수 있습니다.
+  </p>
+
+  <div class="progress-info">
+    <span id="read-counter">문장 1 / 5</span>
+    <span id="read-revisit"></span>
+  </div>
+  <div class="progress-bar">
+    <div id="read-fill" class="progress-fill" style="width:0%"></div>
+  </div>
+
+  <div id="sentence" class="sentence-display"></div>
+
+  <div class="actions between">
+    <button id="btn-prev" class="button-secondary" disabled>← 이전</button>
+    <button id="btn-next">다음 문장 →</button>
+  </div>
+
+  <p class="footer-note">
+    단축키: <span class="key-hint">Space</span> 다음 &nbsp;
+    <span class="key-hint">←</span> 이전
+  </p>
+</section>
+
+<!-- ══════════ 3. 이해 문항 화면 ══════════ -->
+<section id="screen-quiz" class="screen container" hidden>
+  <h1>이해 문항</h1>
+  <p class="subtitle">
+    방금 읽은 지문 내용에 대한 6개 문항입니다. 각 문항에 답한 뒤
+    <strong>얼마나 확신하는지</strong>도 함께 표시해주세요.
+  </p>
+
+  <div id="quiz-list"></div>
+
+  <div id="quiz-err" class="error center" hidden></div>
+
+  <div class="actions">
+    <button id="btn-submit">제출하기</button>
+  </div>
+</section>
+
+<!-- ══════════ 4. 완료 화면 ══════════ -->
+<section id="screen-done" class="screen container" hidden>
+  <span class="done-badge">✓ 완료</span>
+  <h1>실험이 종료되었습니다</h1>
+  <p class="subtitle">
+    소중한 시간을 내주셔서 감사합니다.
+  </p>
+  <div id="done-body"></div>
+  <p class="footer-note">
+    이 창을 닫으셔도 됩니다. 다시 실행할 필요는 없습니다.
+  </p>
+</section>
+
+<script src="config.js"></script>
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
