@@ -10,13 +10,13 @@
 //    - 실행 계정: 나
 //    - 액세스 권한: 모든 사용자 (익명 포함)   ← 반드시 이걸로!
 // 6. 배포 → 웹 앱 URL 복사 (https://script.google.com/macros/s/..../exec)
-// 7. 이 URL을 프로젝트의 config.js 파일 안 SHEETS_WEBHOOK_URL 에 붙여넣기
-//    예) const SHEETS_WEBHOOK_URL = "https://script.google.com/macros/s/AKfy.../exec";
-// 8. 수정한 config.js 를 깃허브에 커밋/푸시하면 끝
+// 7. 이 URL을 config.js 의 SHEETS_WEBHOOK_URL 에 붙여넣고 깃허브에 푸시
 // ============================================
-// 참고: 실험 페이지는 CORS preflight를 피하려고 Content-Type을 text/plain으로
-// 보냅니다. Apps Script의 e.postData.contents 에는 그대로 JSON 문자열이 들어오므로
-// 아래 JSON.parse 가 정상 동작합니다.
+// 만들어지는 시트 4개:
+//   analysis        ★ 분석용 메인 테이블 (참가자 × 명제 = 한 행)
+//   quiz_responses    문항별 응답 (근거 명제의 병목 점수가 붙어 있음)
+//   participants      참가자별 요약 (한 명 = 한 행)
+//   raw_json          원본 백업
 // ============================================
 
 function doPost(e) {
@@ -24,95 +24,127 @@ function doPost(e) {
     const data = JSON.parse(e.postData.contents);
     const ss = SpreadsheetApp.getActiveSpreadsheet();
 
-    // ── 1. 요약 시트 (한 참가자 = 한 행) ──
-    let summarySheet = ss.getSheetByName('summary');
-    if (!summarySheet) {
-      summarySheet = ss.insertSheet('summary');
-      summarySheet.appendRow([
-        '제출시각', '참가자ID', '국어등급', '배경지식', '배정조건',
-        '전체정답수', '전체문항수', '정답률(%)',
-        '회상정답', '회상총', '통합정답', '통합총', '추론정답', '추론총',
-        '이해착각수', '진짜이해수', '우연정답수',
-        '읽기시작', '읽기완료', '제출완료',
-      ]);
-    }
-
-    const s = data.session || {};
+    const s  = data.session || {};
     const sm = data.summary || {};
-    const scoreT = sm.scoreByType || {};
-    const countT = sm.countByType || {};
+    const perUnit = (data.reading && data.reading.perUnit) || [];
+    const quiz = data.quiz || [];
+    const when = data.submittedAt;
 
-    summarySheet.appendRow([
-      data.submittedAt,
-      s.pid, s.grade, s.priorKnowledge, s.condition,
-      sm.totalCorrect, sm.totalQuestions,
-      sm.totalQuestions ? Math.round((sm.totalCorrect / sm.totalQuestions) * 100) : 0,
-      scoreT.recall || 0, countT.recall || 0,
-      scoreT.integration || 0, countT.integration || 0,
-      scoreT.inference || 0, countT.inference || 0,
-      sm.illusionCount || 0, sm.trueUnderstandingCount || 0, sm.luckyGuessCount || 0,
-      s.startedAt || '',
-      (data.reading && data.reading.finishedAt) || '',
-      data.submittedAt || '',
+    // ══════════════════════════════════════════════
+    // 1. analysis ★ — 이 시트 하나로 논문/보고서 분석이 다 됩니다.
+    //    한 행 = 참가자 한 명이 명제 하나를 읽은 기록.
+    //    x축: 병목점수 / y축: 음절당읽기시간, 정답률
+    // ══════════════════════════════════════════════
+    const analysis = getSheet(ss, 'analysis', [
+      '제출시각', '참가자ID', '국어등급', '배경지식',
+      '명제ID', '주제', '병목수준', '병목점수',
+      '안긴절', '명사화', '피동', '절밀도',
+      '음절수', '어절수',
+      '총읽기시간(ms)', '음절당읽기시간(ms)', '재읽기횟수',
+      '해당문항수', '해당정답수', '해당정답률(%)',
     ]);
 
-    // ── 2. 읽기 로그 시트 (한 이동 = 한 행) ──
-    let readingSheet = ss.getSheetByName('reading_logs');
-    if (!readingSheet) {
-      readingSheet = ss.insertSheet('reading_logs');
-      readingSheet.appendRow([
-        '제출시각', '참가자ID', '배정조건',
-        '문장번호(0-based)', '체류시간(ms)', '방문차수', '이동방향', '이벤트시각(ms)',
-      ]);
-    }
-    const logs = (data.reading && data.reading.logs) || [];
-    logs.forEach(function (log) {
-      readingSheet.appendRow([
-        data.submittedAt, s.pid, s.condition,
-        log.sentenceIdx, log.dwellMs, log.visit, log.direction, log.timestamp,
+    perUnit.forEach(function (u) {
+      const qs = quiz.filter(function (q) { return q.sourceUnit === u.unitId; });
+      const nCorrect = qs.filter(function (q) { return q.correct; }).length;
+      analysis.appendRow([
+        when, s.pid, s.grade, s.priorKnowledge,
+        u.unitId, u.topic, u.level, u.bottleneckScore,
+        u.embeds, u.nominal, u.passive, u.clauseDensity,
+        u.syllables, u.words,
+        u.totalDwellMs, u.msPerSyllable, u.rereads,
+        qs.length, nCorrect,
+        qs.length ? Math.round(nCorrect / qs.length * 100) : '',
       ]);
     });
 
-    // ── 3. 문항 응답 시트 ──
-    let quizSheet = ss.getSheetByName('quiz_responses');
-    if (!quizSheet) {
-      quizSheet = ss.insertSheet('quiz_responses');
-      quizSheet.appendRow([
-        '제출시각', '참가자ID', '배정조건',
-        '문항ID', '유형', '선택지', '정답여부', '확신도', '응답시간(ms)',
-        '이해착각', '진짜이해', '우연정답',
-      ]);
-    }
-    const quiz = data.quiz || [];
+    // ══════════════════════════════════════════════
+    // 2. quiz_responses — 문항별 원자료
+    // ══════════════════════════════════════════════
+    const quizSheet = getSheet(ss, 'quiz_responses', [
+      '제출시각', '참가자ID',
+      '문항ID', '유형', '근거명제', '병목수준', '병목점수',
+      '선택지', '정답여부', '확신도', '응답시간(ms)',
+      '근거명제_음절당읽기(ms)', '근거명제_재읽기',
+      '이해착각', '진짜이해', '우연정답',
+    ]);
     quiz.forEach(function (q) {
       quizSheet.appendRow([
-        data.submittedAt, s.pid, s.condition,
-        q.qid, q.type, q.chosen, q.correct, q.confidence, q.responseMs,
+        when, s.pid,
+        q.qid, q.type, q.sourceUnit, q.level, q.bottleneckScore,
+        q.chosen, q.correct, q.confidence, q.responseMs,
+        q.srcMsPerSyllable, q.srcRereads,
         q.illusion, q.trueUnderstanding, q.luckyGuess,
       ]);
     });
 
-    // ── 4. 원본 백업 시트 (JSON 통째) ──
-    let rawSheet = ss.getSheetByName('raw_json');
-    if (!rawSheet) {
-      rawSheet = ss.insertSheet('raw_json');
-      rawSheet.appendRow(['제출시각', '참가자ID', 'JSON']);
-    }
-    rawSheet.appendRow([data.submittedAt, s.pid, JSON.stringify(data)]);
+    // ══════════════════════════════════════════════
+    // 3. participants — 참가자별 요약 (개인 내 비교용)
+    // ══════════════════════════════════════════════
+    const byL = sm.byLevel || {};
+    const participants = getSheet(ss, 'participants', [
+      '제출시각', '참가자ID', '국어등급', '배경지식',
+      '명제1배정', '명제2배정', '명제3배정', '명제4배정', '명제5배정',
+      '전체정답수', '전체문항수', '전체정답률(%)',
+      '회상정답', '통합정답', '추론정답',
+      'B1_음절당ms', 'B2_음절당ms', 'B3_음절당ms', 'B4_음절당ms',
+      'B1_정답률', 'B2_정답률', 'B3_정답률', 'B4_정답률',
+      '이해착각수', '진짜이해수', '우연정답수',
+      '읽기시작', '읽기완료',
+    ]);
+    const a = s.assignment || {};
+    const scoreT = sm.scoreByType || {};
+    participants.appendRow([
+      when, s.pid, s.grade, s.priorKnowledge,
+      a['1'], a['2'], a['3'], a['4'], a['5'],
+      sm.totalCorrect, sm.totalQuestions,
+      sm.totalQuestions ? Math.round(sm.totalCorrect / sm.totalQuestions * 100) : 0,
+      scoreT.recall || 0, scoreT.integration || 0, scoreT.inference || 0,
+      lv(byL, 'B1', 'meanMsPerSyllable'), lv(byL, 'B2', 'meanMsPerSyllable'),
+      lv(byL, 'B3', 'meanMsPerSyllable'), lv(byL, 'B4', 'meanMsPerSyllable'),
+      lv(byL, 'B1', 'accuracy'), lv(byL, 'B2', 'accuracy'),
+      lv(byL, 'B3', 'accuracy'), lv(byL, 'B4', 'accuracy'),
+      sm.illusionCount || 0, sm.trueUnderstandingCount || 0, sm.luckyGuessCount || 0,
+      s.startedAt || '',
+      (data.reading && data.reading.finishedAt) || '',
+    ]);
 
-    return ContentService.createTextOutput(
-      JSON.stringify({ ok: true })
-    ).setMimeType(ContentService.MimeType.JSON);
+    // ══════════════════════════════════════════════
+    // 4. raw_json — 원본 백업 (이동 이벤트 로그 포함)
+    // ══════════════════════════════════════════════
+    const raw = getSheet(ss, 'raw_json', ['제출시각', '참가자ID', 'JSON']);
+    raw.appendRow([when, s.pid, JSON.stringify(data)]);
+
+    return json({ ok: true });
 
   } catch (err) {
-    return ContentService.createTextOutput(
-      JSON.stringify({ ok: false, error: err.message })
-    ).setMimeType(ContentService.MimeType.JSON);
+    return json({ ok: false, error: err.message });
   }
 }
 
+// ── 헬퍼 ──
+
+function getSheet(ss, name, header) {
+  let sh = ss.getSheetByName(name);
+  if (!sh) {
+    sh = ss.insertSheet(name);
+    sh.appendRow(header);
+    sh.setFrozenRows(1);
+  }
+  return sh;
+}
+
+function lv(byLevel, level, key) {
+  const o = byLevel[level];
+  return (o && o[key] !== null && o[key] !== undefined) ? o[key] : '';
+}
+
+function json(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
 function doGet() {
-  return ContentService.createTextOutput(
-    'Bottleneck Experiment Webhook OK'
-  ).setMimeType(ContentService.MimeType.TEXT);
+  return ContentService.createTextOutput('Bottleneck Experiment Webhook OK')
+    .setMimeType(ContentService.MimeType.TEXT);
 }

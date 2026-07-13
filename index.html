@@ -19,9 +19,9 @@
   <div class="card">
     <h2>실험 안내</h2>
     <ol class="guide-list">
-      <li>과학 지문을 <strong>문장 단위</strong>로 하나씩 읽습니다.</li>
-      <li>각 문장을 읽고 이해했다고 판단되면 <span class="key-hint">Space</span> 또는 <strong>다음 문장</strong> 버튼을 눌러 넘깁니다.</li>
-      <li>이전 문장으로 돌아가려면 <span class="key-hint">←</span> 키 또는 <strong>이전</strong> 버튼을 누릅니다.</li>
+      <li>과학 지문이 <strong>5개 부분</strong>으로 나뉘어 한 화면에 하나씩 나옵니다.</li>
+      <li>각 부분을 읽고 이해했다고 판단되면 <span class="key-hint">Space</span> 또는 <strong>다음</strong> 버튼을 눌러 넘깁니다.</li>
+      <li>앞부분으로 돌아가려면 <span class="key-hint">←</span> 키 또는 <strong>이전</strong> 버튼을 누릅니다.</li>
       <li>지문을 다 읽은 후 이해 문항 6개에 답합니다.</li>
     </ol>
     <div class="hint">
@@ -80,11 +80,11 @@
 <section id="screen-read" class="screen container" hidden>
   <h1>지문 읽기</h1>
   <p class="subtitle">
-    이해할 때까지 읽고 다음 문장으로 넘기세요. 앞으로 돌아갈 수 있습니다.
+    이해할 때까지 읽고 다음으로 넘기세요. 앞으로 돌아갈 수 있습니다.
   </p>
 
   <div class="progress-info">
-    <span id="read-counter">문장 1 / 5</span>
+    <span id="read-counter">1 / 5</span>
     <span id="read-revisit"></span>
   </div>
   <div class="progress-bar">
@@ -95,7 +95,7 @@
 
   <div class="actions between">
     <button id="btn-prev" class="button-secondary" disabled>← 이전</button>
-    <button id="btn-next">다음 문장 →</button>
+    <button id="btn-next">다음 →</button>
   </div>
 
   <p class="footer-note">

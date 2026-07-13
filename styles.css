@@ -200,3 +200,25 @@ button:disabled { background: #ccc; cursor: not-allowed; }
 }
 
 .result-list { padding-left: 20px; color: #333; }
+
+/* 완료 화면 결과표 */
+.table-wrap { overflow-x: auto; margin-top: 12px; }
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  min-width: 440px;
+}
+th, td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #e5e5e5;
+  text-align: left;
+  white-space: nowrap;
+}
+th {
+  font-weight: 600;
+  color: #666;
+  border-bottom: 2px solid #ddd;
+}
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+tbody tr:last-child td { border-bottom: none; }
