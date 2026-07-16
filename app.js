@@ -14,7 +14,7 @@ const state = {
   session: null,
   order: [],          // 무작위 순서의 지문 2개
   pIdx: 0,            // 현재 지문 인덱스 (0 → 1)
-  chosenLevel: null,
+  unitLevel: {},      // "passageId#unitId" → 'low'|'mid'|'high' (명제별 무작위 배정)
 
   // 현재 지문 읽기용
   plan: [],           // 현재 지문의 명제들
@@ -51,25 +51,29 @@ $('btn-start').addEventListener('click', () => {
   const pid = $('pid').value.trim();
   const grade = $('grade').value;
   const prior = $('prior').value;
-  const level = document.querySelector('input[name="level"]:checked');
   const err = $('start-err');
   const fail = (msg) => { err.textContent = msg; err.hidden = false; };
 
   if (!pid) return fail('학번과 이름을 입력해주세요.');
   if (!grade) return fail('국어 등급을 선택해주세요.');
   if (prior === '') return fail('배경지식 정도를 선택해주세요.');
-  if (!level) return fail('읽을 난이도를 선택해주세요.');
   err.hidden = true;
 
-  state.chosenLevel = level.value;
   state.order = orderedPassages();
+
+  // 명제별 병목 수준 무작위 배정 (읽기 순서대로 10개 명제에 상/중/하 배정)
+  const flatUnits = [];
+  state.order.forEach(p => p.units.forEach(u => flatUnits.push({ pid: p.id, uid: u.id })));
+  const levels = assignPropositionLevels(flatUnits.length);
+  state.unitLevel = {};
+  flatUnits.forEach((fu, i) => { state.unitLevel[`${fu.pid}#${fu.uid}`] = levels[i]; });
 
   state.session = {
     pid,
     grade,
     priorKnowledge: parseInt(prior, 10),
-    chosenLevel: state.chosenLevel,
-    chosenLevelLabel: LEVEL_LABEL[state.chosenLevel],
+    assignMethod: 'random',        // 무작위 배정 (자기선택 아님)
+    assignment: state.unitLevel,   // 명제별 배정 기록
     passageOrder: state.order.map(p => p.id),
     startedAt: new Date().toISOString(),
   };
@@ -86,10 +90,11 @@ $('btn-start').addEventListener('click', () => {
 function startPassageReading() {
   const p = state.order[state.pIdx];
   state.plan = p.units.map(u => {
-    const v = u.versions[state.chosenLevel];
+    const level = state.unitLevel[`${p.id}#${u.id}`];
+    const v = u.versions[level];
     return {
       passageId: p.id, passageTitle: p.title,
-      unitId: u.id, topic: u.topic, level: state.chosenLevel,
+      unitId: u.id, topic: u.topic, level, levelLabel: LEVEL_LABEL[level],
       text: v.text, score: v.score, raw: v.raw,
       features: v.features, syllables: v.syllables, words: v.words,
     };
@@ -163,7 +168,7 @@ function finishPassageReading() {
     const totalMs = state.dwell[k] || 0;
     state.allPerUnit.push({
       passageId: item.passageId, passageTitle: item.passageTitle,
-      unitId: item.unitId, topic: item.topic, level: item.level,
+      unitId: item.unitId, topic: item.topic, level: item.level, levelLabel: item.levelLabel,
       bottleneckScore: item.score, bottleneckRaw: item.raw,
       embeds: item.features.embeds, nominal: item.features.nominal, passive: item.features.passive,
       clauseDensity: Math.round((item.features.clauses / item.features.sentences) * 100) / 100,
@@ -303,7 +308,7 @@ async function onQuizNext() {
     const confidence = state.confidences[q.id];
     state.allQuiz.push({
       qid: q.id, passageId: q.passageId, type: q.type, sourceUnit: q.sourceUnit,
-      level: src.level, bottleneckScore: src.bottleneckScore,
+      level: src.level, levelLabel: src.levelLabel, bottleneckScore: src.bottleneckScore,
       srcMsPerSyllable: src.msPerSyllable, srcRereads: src.rereads,
       chosen, correct, confidence,
       responseMs: state.responseTimes[q.id] ?? null,
@@ -381,7 +386,7 @@ function buildFinalData() {
     summary: {
       totalCorrect: quizResults.filter(r => r.correct).length,
       totalQuestions: quizResults.length,
-      chosenLevel: state.chosenLevel,
+      assignMethod: 'random',
       meanBottleneck: Math.round(perUnit.reduce((s, u) => s + u.bottleneckScore, 0) / perUnit.length * 10) / 10,
       meanMsPerSyllable: Math.round(perUnit.reduce((s, u) => s + u.msPerSyllable, 0) / perUnit.length * 10) / 10,
       scoreByType, countByType, byPassage,
@@ -419,21 +424,24 @@ async function sendToSheets(payload) {
 // ══════════ 4. 완료 화면 ══════════
 
 function renderDone(data) {
-  const { summary, session } = data;
+  const { summary } = data;
   const scorePct = Math.round((summary.totalCorrect / summary.totalQuestions) * 100);
 
-  const rows = data.reading.perUnit.map(u => {
-    const qcount = data.quiz.filter(q => q.passageId === u.passageId && q.sourceUnit === u.unitId).length;
-    const qcorr = data.quiz.filter(q => q.passageId === u.passageId && q.sourceUnit === u.unitId && q.correct).length;
-    return `<tr>
-      <td>${u.passageTitle}</td>
-      <td>${u.topic}</td>
-      <td class="num">${u.bottleneckScore}</td>
-      <td class="num">${u.msPerSyllable}</td>
-      <td class="num">${u.rereads}</td>
-      <td class="num">${qcount ? `${qcorr}/${qcount}` : '-'}</td>
-    </tr>`;
-  }).join('');
+  const rows = data.reading.perUnit
+    .slice()
+    .sort((a, b) => a.bottleneckScore - b.bottleneckScore)
+    .map(u => {
+      const qcount = data.quiz.filter(q => q.passageId === u.passageId && q.sourceUnit === u.unitId).length;
+      const qcorr = data.quiz.filter(q => q.passageId === u.passageId && q.sourceUnit === u.unitId && q.correct).length;
+      return `<tr>
+        <td>${u.passageTitle}</td>
+        <td>${u.topic}</td>
+        <td class="num">${u.levelLabel}</td>
+        <td class="num">${u.bottleneckScore}</td>
+        <td class="num">${u.msPerSyllable}</td>
+        <td class="num">${qcount ? `${qcorr}/${qcount}` : '-'}</td>
+      </tr>`;
+    }).join('');
 
   const illusion = summary.illusionCount > 0 ? `
     <div class="hint" style="margin-top:16px">
@@ -443,8 +451,8 @@ function renderDone(data) {
   $('done-body').innerHTML = `
     <div class="card">
       <h2>당신의 결과</h2>
-      <p>선택한 난이도: <strong>${session.chosenLevelLabel}</strong>
-         (평균 병목 점수 ${summary.meanBottleneck} / 10)</p>
+      <p>이번에는 문장 난이도가 <strong>무작위로 섞여</strong> 제시되었습니다
+         (평균 병목 점수 ${summary.meanBottleneck} / 10).</p>
       <p>전체 정답률: <strong>${summary.totalCorrect} / ${summary.totalQuestions} (${scorePct}%)</strong></p>
       <p>평균 음절당 읽기 시간: <strong>${summary.meanMsPerSyllable} ms</strong></p>
       <div class="table-wrap">
@@ -452,8 +460,8 @@ function renderDone(data) {
           <thead>
             <tr>
               <th>지문</th><th>내용</th>
-              <th class="num">병목</th><th class="num">음절당(ms)</th>
-              <th class="num">다시읽음</th><th class="num">정답</th>
+              <th class="num">난이도</th><th class="num">병목</th>
+              <th class="num">음절당(ms)</th><th class="num">정답</th>
             </tr>
           </thead>
           <tbody>${rows}</tbody>

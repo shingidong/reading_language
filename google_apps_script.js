@@ -31,8 +31,8 @@ function doPost(e) {
 
     // ── 1. analysis ★ ──
     const analysis = getSheet(ss, 'analysis', [
-      '제출시각', '참가자ID', '국어등급', '배경지식', '선택난이도',
-      '지문', '명제ID', '주제', '병목점수',
+      '제출시각', '참가자ID', '국어등급', '배경지식',
+      '지문', '명제ID', '주제', '명제난이도', '병목점수',
       '안긴절', '명사화', '피동', '절밀도', '음절수', '어절수',
       '총읽기시간(ms)', '음절당읽기시간(ms)', '재읽기횟수',
       '해당문항수', '해당정답수', '해당정답률(%)',
@@ -41,8 +41,8 @@ function doPost(e) {
       const qs = quiz.filter(function (q) { return q.passageId === u.passageId && q.sourceUnit === u.unitId; });
       const nCorrect = qs.filter(function (q) { return q.correct; }).length;
       analysis.appendRow([
-        when, s.pid, s.grade, s.priorKnowledge, s.chosenLevelLabel,
-        u.passageTitle, u.unitId, u.topic, u.bottleneckScore,
+        when, s.pid, s.grade, s.priorKnowledge,
+        u.passageTitle, u.unitId, u.topic, u.levelLabel, u.bottleneckScore,
         u.embeds, u.nominal, u.passive, u.clauseDensity, u.syllables, u.words,
         u.totalDwellMs, u.msPerSyllable, u.rereads,
         qs.length, nCorrect, qs.length ? Math.round(nCorrect / qs.length * 100) : '',
@@ -51,16 +51,16 @@ function doPost(e) {
 
     // ── 2. quiz_responses ──
     const quizSheet = getSheet(ss, 'quiz_responses', [
-      '제출시각', '참가자ID', '선택난이도',
-      '지문', '문항ID', '유형', '근거명제', '병목점수',
+      '제출시각', '참가자ID',
+      '지문', '문항ID', '유형', '근거명제', '근거명제난이도', '병목점수',
       '선택지', '정답여부', '확신도', '응답시간(ms)',
       '근거명제_음절당읽기(ms)', '근거명제_재읽기',
       '이해착각', '진짜이해', '우연정답',
     ]);
     quiz.forEach(function (q) {
       quizSheet.appendRow([
-        when, s.pid, s.chosenLevelLabel,
-        q.passageId, q.qid, q.type, q.sourceUnit, q.bottleneckScore,
+        when, s.pid,
+        q.passageId, q.qid, q.type, q.sourceUnit, q.levelLabel, q.bottleneckScore,
         q.chosen, q.correct, q.confidence, q.responseMs,
         q.srcMsPerSyllable, q.srcRereads,
         q.illusion, q.trueUnderstanding, q.luckyGuess,
@@ -71,7 +71,7 @@ function doPost(e) {
     const bp = sm.byPassage || {};
     const pids = Object.keys(bp);
     const participants = getSheet(ss, 'participants', [
-      '제출시각', '참가자ID', '국어등급', '배경지식', '선택난이도',
+      '제출시각', '참가자ID', '국어등급', '배경지식', '배정방식',
       '평균병목점수', '평균음절당읽기(ms)',
       '전체정답수', '전체문항수', '전체정답률(%)',
       '회상정답', '통합정답', '추론정답',
@@ -83,7 +83,7 @@ function doPost(e) {
     const A = pids[0] ? bp[pids[0]] : {};
     const B = pids[1] ? bp[pids[1]] : {};
     participants.appendRow([
-      when, s.pid, s.grade, s.priorKnowledge, s.chosenLevelLabel,
+      when, s.pid, s.grade, s.priorKnowledge, '무작위',
       sm.meanBottleneck, sm.meanMsPerSyllable,
       sm.totalCorrect, sm.totalQuestions,
       sm.totalQuestions ? Math.round(sm.totalCorrect / sm.totalQuestions * 100) : 0,

@@ -83,14 +83,24 @@ const passages = [
     ],
     questions: [
       { id: 'T1', type: 'recall', sourceUnit: 2,
-        text: '고체의 열팽창 정도를 나타내는 값의 이름은?',
-        options: ['탄성 계수', '열팽창 계수', '전도 계수', '팽창 지수'], answer: 1 },
+        text: '고체의 열팽창 계수 값은 무엇에 따라 정해지는가?',
+        options: ['물체의 부피와 무게', '물질이 가진 고유한 성질', '가해진 온도 변화량', '두 금속을 접합한 방식'], answer: 1 },
       { id: 'T2', type: 'integration', sourceUnit: 3,
-        text: '바이메탈이 휘어지는 이유로 가장 적절한 것은?',
-        options: ['두 금속의 무게가 다르기 때문', '두 금속의 팽창 정도가 다르기 때문', '외부에서 힘을 가하기 때문', '전류가 흐르기 때문'], answer: 1 },
+        text: '바이메탈이 휘어지는 과정을 옳게 설명한 것은?',
+        options: [
+          '두 금속이 같은 양만큼 팽창하지만 방향이 반대여서 휜다',
+          '두 금속의 팽창 정도가 달라 덜 팽창한 쪽으로 휜다',
+          '한 금속만 팽창하고 다른 금속은 수축하여 휜다',
+          '두 금속 사이에 전류가 흘러 자기력으로 휜다',
+        ], answer: 1 },
       { id: 'T3', type: 'inference', sourceUnit: 4,
-        text: '외부에서 바이메탈의 휨을 방해하는 힘이 작용한다면 실제 이동 거리는 어떻게 되는가?',
-        options: ['변화 없다', '최대 이동 거리보다 짧아진다', '최대 이동 거리보다 길어진다', '무한대가 된다'], answer: 1 },
+        text: '외부에서 휨을 방해하는 힘이 점점 커지면 바이메탈의 실제 이동 거리는 어떻게 변하는가?',
+        options: [
+          '최대 이동 거리 그대로 변하지 않는다',
+          '최대 이동 거리보다 커진다',
+          '점점 짧아져 0에 가까워진다',
+          '힘과 무관하게 일정하다',
+        ], answer: 2 },
     ],
   },
   {
@@ -155,14 +165,24 @@ const passages = [
     ],
     questions: [
       { id: 'O1', type: 'recall', sourceUnit: 3,
-        text: '삼투압이란 무엇인가?',
-        options: ['용매가 저절로 이동하는 힘', '용매의 이동을 막기 위해 고농도 쪽에 가하는 압력', '용질이 막을 통과하는 압력', '온도가 높아질 때 생기는 압력'], answer: 1 },
+        text: '삼투압에 대한 설명으로 옳은 것은?',
+        options: [
+          '용매를 저농도에서 고농도로 이동하게 만드는 힘',
+          '용매의 이동을 멈추기 위해 고농도 용액 쪽에 가하는 압력',
+          '용질이 반투막을 통과할 때 받는 저항',
+          '두 용액의 온도 차이 때문에 생기는 압력',
+        ], answer: 1 },
       { id: 'O2', type: 'integration', sourceUnit: 4,
-        text: '용액에 녹은 용질 입자 수가 많아지면 삼투압은 어떻게 되는가?',
-        options: ['작아진다', '변화 없다', '비례하여 커진다', '반비례하여 작아진다'], answer: 2 },
+        text: '온도가 일정할 때, 어떤 설탕물의 용질 입자 수를 두 배로 늘리면 삼투압은 대략 어떻게 되는가?',
+        options: ['거의 변화 없다', '약 절반이 된다', '약 두 배가 된다', '예측할 수 없다'], answer: 2 },
       { id: 'O3', type: 'inference', sourceUnit: 5,
-        text: '역삼투 방식의 해수 담수화가 소금기를 걸러 낼 수 있는 이유로 가장 적절한 것은?',
-        options: ['소금이 무거워 가라앉으므로', '반투막이 용매인 물만 통과시키므로', '바닷물이 저절로 민물이 되므로', '온도를 높여 소금을 증발시키므로'], answer: 1 },
+        text: '역삼투 방식의 해수 담수화에서 바닷물 쪽에 센 압력을 가하는 이유로 가장 적절한 것은?',
+        options: [
+          '삼투압을 이겨 물을 원래 삼투와 반대 방향으로 밀어내기 위해',
+          '소금을 가열해 증발시키기 위해',
+          '반투막의 구멍을 더 넓히기 위해',
+          '용질이 스스로 막을 빠져나가게 하기 위해',
+        ], answer: 0 },
     ],
   },
 ];
@@ -198,9 +218,25 @@ function wordCount(t) { return t.trim().split(/\s+/).length; }
   })));
 })();
 
-// 참가자가 고른 난이도로 두 지문의 제시 순서만 무작위화(순서 효과 상쇄)
+// 두 지문의 제시 순서 무작위화(순서 효과 상쇄)
 function orderedPassages() {
   const arr = passages.slice();
   if (Math.floor(Math.random() * 2) === 1) arr.reverse();
   return arr;
+}
+
+// ── 명제별 병목 수준 무작위 배정 (개인 내 설계) ──
+// 명제 n개(두 지문이면 10개)에 상/중/하를 최대한 고르게, 무작위 순서로 배정.
+// 각 수준이 최소 3번씩은 나오도록 하여 한 참가자 안에서 세 수준 비교가 가능하게 한다.
+// → 참가자가 스스로 고르지 않으므로 자기선택 편향이 사라진다.
+function assignPropositionLevels(nProps) {
+  const base = [];
+  const per = Math.floor(nProps / LEVELS.length);
+  LEVELS.forEach(L => { for (let i = 0; i < per; i++) base.push(L); });
+  while (base.length < nProps) base.push(LEVELS[Math.floor(Math.random() * LEVELS.length)]);
+  for (let i = base.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [base[i], base[j]] = [base[j], base[i]];
+  }
+  return base;
 }
