@@ -173,8 +173,9 @@ function finishPassageReading() {
       embeds: item.features.embeds, nominal: item.features.nominal, passive: item.features.passive,
       clauseDensity: Math.round((item.features.clauses / item.features.sentences) * 100) / 100,
       syllables: item.syllables, words: item.words,
-      totalDwellMs: totalMs,
-      msPerSyllable: item.syllables ? Math.round((totalMs / item.syllables) * 10) / 10 : null,
+      totalDwellMs: totalMs,                                                   // 주 지표: 명제당 총 읽기시간
+      msPerWord: item.words ? Math.round((totalMs / item.words) * 10) / 10 : null,        // 보조 지표: 어절당(길이 통제)
+      msPerSyllable: item.syllables ? Math.round((totalMs / item.syllables) * 10) / 10 : null, // 참고용(권장 안 함)
       visits: state.visits[k] || 1,
       rereads: Math.max(0, (state.visits[k] || 1) - 1),
     });
@@ -309,7 +310,7 @@ async function onQuizNext() {
     state.allQuiz.push({
       qid: q.id, passageId: q.passageId, type: q.type, sourceUnit: q.sourceUnit,
       level: src.level, levelLabel: src.levelLabel, bottleneckScore: src.bottleneckScore,
-      srcMsPerSyllable: src.msPerSyllable, srcRereads: src.rereads,
+      srcTotalMs: src.totalDwellMs, srcMsPerWord: src.msPerWord, srcMsPerSyllable: src.msPerSyllable, srcRereads: src.rereads,
       chosen, correct, confidence,
       responseMs: state.responseTimes[q.id] ?? null,
       illusion: !correct && confidence === 'sure',
@@ -367,16 +368,17 @@ function buildFinalData() {
 
   const byPassage = {};
   perUnit.forEach(u => {
-    const b = byPassage[u.passageId] || (byPassage[u.passageId] = { title: u.passageTitle, msSum: 0, sylSum: 0 });
-    b.msSum += u.totalDwellMs; b.sylSum += u.syllables;
+    const b = byPassage[u.passageId] || (byPassage[u.passageId] = { title: u.passageTitle, msSum: 0, wordSum: 0 });
+    b.msSum += u.totalDwellMs; b.wordSum += u.words;
   });
   Object.keys(byPassage).forEach(pid => {
     const b = byPassage[pid];
     const qsP = quizResults.filter(r => r.passageId === pid);
-    b.msPerSyllable = b.sylSum ? Math.round(b.msSum / b.sylSum * 10) / 10 : null;
+    b.totalMs = b.msSum;
+    b.msPerWord = b.wordSum ? Math.round(b.msSum / b.wordSum * 10) / 10 : null;
     b.correct = qsP.filter(r => r.correct).length;
     b.total = qsP.length;
-    delete b.msSum; delete b.sylSum;
+    delete b.msSum; delete b.wordSum;
   });
 
   return {
@@ -388,7 +390,8 @@ function buildFinalData() {
       totalQuestions: quizResults.length,
       assignMethod: 'random',
       meanBottleneck: Math.round(perUnit.reduce((s, u) => s + u.bottleneckScore, 0) / perUnit.length * 10) / 10,
-      meanMsPerSyllable: Math.round(perUnit.reduce((s, u) => s + u.msPerSyllable, 0) / perUnit.length * 10) / 10,
+      meanTotalMs: Math.round(perUnit.reduce((s, u) => s + u.totalDwellMs, 0) / perUnit.length),
+      meanMsPerWord: Math.round(perUnit.reduce((s, u) => s + u.msPerWord, 0) / perUnit.length * 10) / 10,
       scoreByType, countByType, byPassage,
       illusionCount: quizResults.filter(r => r.illusion).length,
       trueUnderstandingCount: quizResults.filter(r => r.trueUnderstanding).length,
@@ -438,7 +441,8 @@ function renderDone(data) {
         <td>${u.topic}</td>
         <td class="num">${u.levelLabel}</td>
         <td class="num">${u.bottleneckScore}</td>
-        <td class="num">${u.msPerSyllable}</td>
+        <td class="num">${(u.totalDwellMs / 1000).toFixed(1)}</td>
+        <td class="num">${u.msPerWord}</td>
         <td class="num">${qcount ? `${qcorr}/${qcount}` : '-'}</td>
       </tr>`;
     }).join('');
@@ -454,14 +458,14 @@ function renderDone(data) {
       <p>이번에는 문장 난이도가 <strong>무작위로 섞여</strong> 제시되었습니다
          (평균 병목 점수 ${summary.meanBottleneck} / 10).</p>
       <p>전체 정답률: <strong>${summary.totalCorrect} / ${summary.totalQuestions} (${scorePct}%)</strong></p>
-      <p>평균 음절당 읽기 시간: <strong>${summary.meanMsPerSyllable} ms</strong></p>
+      <p>평균 어절당 읽기 시간: <strong>${summary.meanMsPerWord} ms</strong></p>
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
               <th>지문</th><th>내용</th>
               <th class="num">난이도</th><th class="num">병목</th>
-              <th class="num">음절당(ms)</th><th class="num">정답</th>
+              <th class="num">총시간(초)</th><th class="num">어절당(ms)</th><th class="num">정답</th>
             </tr>
           </thead>
           <tbody>${rows}</tbody>

@@ -30,11 +30,12 @@ function doPost(e) {
     const when = data.submittedAt;
 
     // ── 1. analysis ★ ──
+    // 읽기시간 지표 3종: 총시간(주), 어절당(보조/길이통제), 음절당(참고)
     const analysis = getSheet(ss, 'analysis', [
       '제출시각', '참가자ID', '국어등급', '배경지식',
       '지문', '명제ID', '주제', '명제난이도', '병목점수',
       '안긴절', '명사화', '피동', '절밀도', '음절수', '어절수',
-      '총읽기시간(ms)', '음절당읽기시간(ms)', '재읽기횟수',
+      '총읽기시간(ms)', '어절당읽기(ms)', '음절당읽기(ms)', '재읽기횟수',
       '해당문항수', '해당정답수', '해당정답률(%)',
     ]);
     perUnit.forEach(function (u) {
@@ -44,7 +45,7 @@ function doPost(e) {
         when, s.pid, s.grade, s.priorKnowledge,
         u.passageTitle, u.unitId, u.topic, u.levelLabel, u.bottleneckScore,
         u.embeds, u.nominal, u.passive, u.clauseDensity, u.syllables, u.words,
-        u.totalDwellMs, u.msPerSyllable, u.rereads,
+        u.totalDwellMs, u.msPerWord, u.msPerSyllable, u.rereads,
         qs.length, nCorrect, qs.length ? Math.round(nCorrect / qs.length * 100) : '',
       ]);
     });
@@ -54,7 +55,7 @@ function doPost(e) {
       '제출시각', '참가자ID',
       '지문', '문항ID', '유형', '근거명제', '근거명제난이도', '병목점수',
       '선택지', '정답여부', '확신도', '응답시간(ms)',
-      '근거명제_음절당읽기(ms)', '근거명제_재읽기',
+      '근거명제_총읽기(ms)', '근거명제_어절당(ms)', '근거명제_재읽기',
       '이해착각', '진짜이해', '우연정답',
     ]);
     quiz.forEach(function (q) {
@@ -62,7 +63,7 @@ function doPost(e) {
         when, s.pid,
         q.passageId, q.qid, q.type, q.sourceUnit, q.levelLabel, q.bottleneckScore,
         q.chosen, q.correct, q.confidence, q.responseMs,
-        q.srcMsPerSyllable, q.srcRereads,
+        q.srcTotalMs, q.srcMsPerWord, q.srcRereads,
         q.illusion, q.trueUnderstanding, q.luckyGuess,
       ]);
     });
@@ -72,10 +73,10 @@ function doPost(e) {
     const pids = Object.keys(bp);
     const participants = getSheet(ss, 'participants', [
       '제출시각', '참가자ID', '국어등급', '배경지식', '배정방식',
-      '평균병목점수', '평균음절당읽기(ms)',
+      '평균병목점수', '평균어절당읽기(ms)',
       '전체정답수', '전체문항수', '전체정답률(%)',
       '회상정답', '통합정답', '추론정답',
-      '지문A_정답', '지문A_음절당ms', '지문B_정답', '지문B_음절당ms',
+      '지문A_정답', '지문A_어절당ms', '지문B_정답', '지문B_어절당ms',
       '이해착각수', '진짜이해수', '우연정답수',
       '읽기시작', '읽기완료',
     ]);
@@ -84,12 +85,12 @@ function doPost(e) {
     const B = pids[1] ? bp[pids[1]] : {};
     participants.appendRow([
       when, s.pid, s.grade, s.priorKnowledge, '무작위',
-      sm.meanBottleneck, sm.meanMsPerSyllable,
+      sm.meanBottleneck, sm.meanMsPerWord,
       sm.totalCorrect, sm.totalQuestions,
       sm.totalQuestions ? Math.round(sm.totalCorrect / sm.totalQuestions * 100) : 0,
       scoreT.recall || 0, scoreT.integration || 0, scoreT.inference || 0,
-      A.total ? (A.correct + '/' + A.total) : '', A.msPerSyllable || '',
-      B.total ? (B.correct + '/' + B.total) : '', B.msPerSyllable || '',
+      A.total ? (A.correct + '/' + A.total) : '', A.msPerWord || '',
+      B.total ? (B.correct + '/' + B.total) : '', B.msPerWord || '',
       sm.illusionCount || 0, sm.trueUnderstandingCount || 0, sm.luckyGuessCount || 0,
       s.startedAt || '', (data.reading && data.reading.finishedAt) || '',
     ]);
