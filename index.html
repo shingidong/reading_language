@@ -20,9 +20,9 @@
     <h2>실험 안내</h2>
     <ol class="guide-list">
       <li>과학 지문을 부분 단위로 하나씩 읽습니다. 문장 난이도는 <strong>자동으로 다양하게</strong> 섞여 나옵니다.</li>
-      <li>각 부분을 읽고 이해했다고 판단되면 <span class="key-hint">Space</span> 또는 <strong>다음</strong> 버튼을 눌러 넘깁니다.</li>
-      <li>지문을 다 읽으면 그 지문에 대한 <strong>이해 문항 3개</strong>를 풉니다.</li>
-      <li>그다음 <strong>두 번째 지문</strong>을 같은 방식으로 읽고 문항 3개를 풉니다. (지문 2개, 총 6문항)</li>
+      <li>각 부분을 읽고 이해했다고 판단되면 <span class="key-hint">Space</span> 또는 <strong>다음</strong> 버튼으로 넘깁니다.</li>
+      <li>일부 부분은 <strong>시간이 제한</strong>되어, 다 못 읽어도 자동으로 넘어갑니다. 제한된 부분은 빠르고 정확하게 읽어주세요.</li>
+      <li>지문을 다 읽으면 <strong>이해 문항 3개</strong>를 풀고, 두 번째 지문도 같은 방식으로 진행합니다. (지문 2개, 총 6문항)</li>
     </ol>
     <div class="hint">
       학교 시험을 볼 때처럼 <strong>진지하게, 이해할 때까지</strong> 읽어주세요.
@@ -80,30 +80,31 @@
 <section id="screen-read" class="screen container" hidden>
   <h1>지문 읽기</h1>
   <p class="subtitle">
-    이해할 때까지 읽고 다음으로 넘기세요. 앞으로 돌아갈 수 있습니다.
+    이해했다고 판단되면 넘기세요. 일부 부분은 <strong>시간이 제한</strong>되어 자동으로 넘어갑니다.
   </p>
 
   <div class="progress-info">
     <span id="read-passage" class="read-passage"></span>
-    <span id="read-revisit"></span>
-  </div>
-  <div class="progress-info">
-    <span id="read-counter">1 / 10</span>
+    <span id="read-counter">1 / 5</span>
   </div>
   <div class="progress-bar">
     <div id="read-fill" class="progress-fill" style="width:0%"></div>
   </div>
 
+  <div id="read-cond" class="read-cond"></div>
+
   <div id="sentence" class="sentence-display"></div>
 
-  <div class="actions between">
-    <button id="btn-prev" class="button-secondary" disabled>← 이전</button>
-    <button id="btn-next">다음 →</button>
+  <div id="read-timer" class="read-timer" hidden>
+    <div id="timer-fill" class="timer-fill"></div>
+  </div>
+
+  <div class="actions">
+    <button id="btn-next" disabled>다음 →</button>
   </div>
 
   <p class="footer-note">
-    단축키: <span class="key-hint">Space</span> 다음 &nbsp;
-    <span class="key-hint">←</span> 이전
+    단축키: <span class="key-hint">Space</span> 다음 &nbsp;·&nbsp; 잠깐 읽은 뒤에 넘길 수 있습니다.
   </p>
 </section>
 

@@ -1,40 +1,41 @@
 // ============================================
-// 병목 문장 독해 실험 — 실행 로직
+// 병목 문장 독해 실험 — 실행 로직 (v6)
 // ============================================
-// 설계: 참가자가 난이도(상/중/하)를 직접 선택 → 그 수준으로 진행.
-//   흐름: [지문1 읽기 → 지문1 문제] → [지문2 읽기 → 지문2 문제] → 완료
-//   지문 제시 순서는 무작위(순서 효과 상쇄).
-// 측정: 명제별 읽기 시간(음절당 정규화) + 명제별 이해 정확도 + 확신도.
-// 분석 단위: 참가자 × 명제 (한 명이 명제 10개를 읽고 문항 6개를 푼다).
+// 개인 내 2요인 무작위 배정:
+//   · 병목수준(상/중/하) — 명제별 무작위
+//   · 읽기조건(자유/제한) — 명제별 무작위. 제한=음절수 비례 시간 뒤 자동 넘김.
+// 부실 응답 차단: 최소 읽기시간 게이트 + 주의점검 문항.
+// 흐름: [지문1 읽기 → 지문1 문항] → [지문2 읽기 → 지문2 문항] → 제출
 // ============================================
 
 const $ = (id) => document.getElementById(id);
 
 const state = {
   session: null,
-  order: [],          // 무작위 순서의 지문 2개
-  pIdx: 0,            // 현재 지문 인덱스 (0 → 1)
-  unitLevel: {},      // "passageId#unitId" → 'low'|'mid'|'high' (명제별 무작위 배정)
+  order: [],
+  pIdx: 0,
+  unitLevel: {},   // "pid#uid" → 'low'|'mid'|'high'
+  unitTime: {},    // "pid#uid" → 'free'|'limited'
 
-  // 현재 지문 읽기용
-  plan: [],           // 현재 지문의 명제들
+  plan: [],
   idx: 0,
   enterTime: null,
-  visits: {},         // key: "passageId#unitId"
-  dwell: {},
+  canAdvance: false,       // 최소 읽기시간 게이트 통과 여부
+  advanceTimer: null,      // 제한 조건 자동 넘김 타이머
+  gateTimer: null,         // 최소 읽기시간 타이머
+  autoFlag: {},            // "pid#uid" → 자동 넘김 여부
 
-  // 전체 누적
+  visits: {},
+  dwell: {},
   allPerUnit: [],
   allEvents: [],
   allQuiz: [],
 
-  // 현재 지문 문항용
   quizList: [],
   answers: {},
   confidences: {},
   quizStart: null,
   responseTimes: {},
-
   submitting: false,
 };
 
@@ -45,7 +46,7 @@ function showScreen(name) {
   window.scrollTo(0, 0);
 }
 
-// ══════════ 1. 시작 화면 ══════════
+// ══════════ 1. 시작 ══════════
 
 $('btn-start').addEventListener('click', () => {
   const pid = $('pid').value.trim();
@@ -61,40 +62,43 @@ $('btn-start').addEventListener('click', () => {
 
   state.order = orderedPassages();
 
-  // 명제별 병목 수준 무작위 배정 (읽기 순서대로 10개 명제에 상/중/하 배정)
-  const flatUnits = [];
-  state.order.forEach(p => p.units.forEach(u => flatUnits.push({ pid: p.id, uid: u.id })));
-  const levels = assignPropositionLevels(flatUnits.length);
-  state.unitLevel = {};
-  flatUnits.forEach((fu, i) => { state.unitLevel[`${fu.pid}#${fu.uid}`] = levels[i]; });
+  // 명제별로 병목수준·읽기조건을 각각 무작위 배정 (읽기 순서대로 10개)
+  const flat = [];
+  state.order.forEach(p => p.units.forEach(u => flat.push(`${p.id}#${u.id}`)));
+  const levels = assignPropositionLevels(flat.length);
+  const times = assignTimeConditions(flat.length);
+  state.unitLevel = {}; state.unitTime = {};
+  flat.forEach((k, i) => { state.unitLevel[k] = levels[i]; state.unitTime[k] = times[i]; });
 
   state.session = {
-    pid,
-    grade,
-    priorKnowledge: parseInt(prior, 10),
-    assignMethod: 'random',        // 무작위 배정 (자기선택 아님)
-    assignment: state.unitLevel,   // 명제별 배정 기록
+    pid, grade, priorKnowledge: parseInt(prior, 10),
+    assignMethod: 'random-2factor',
+    assignment: state.unitLevel,
+    timeAssignment: state.unitTime,
     passageOrder: state.order.map(p => p.id),
     startedAt: new Date().toISOString(),
   };
 
   state.pIdx = 0;
-  state.allPerUnit = [];
-  state.allEvents = [];
-  state.allQuiz = [];
+  state.allPerUnit = []; state.allEvents = []; state.allQuiz = [];
   startPassageReading();
 });
 
-// ══════════ 2. 읽기 화면 (현재 지문) ══════════
+// ══════════ 2. 읽기 (시간제한·게이트 지원) ══════════
 
 function startPassageReading() {
   const p = state.order[state.pIdx];
   state.plan = p.units.map(u => {
-    const level = state.unitLevel[`${p.id}#${u.id}`];
+    const key = `${p.id}#${u.id}`;
+    const level = state.unitLevel[key];
+    const cond = state.unitTime[key];
     const v = u.versions[level];
     return {
-      passageId: p.id, passageTitle: p.title,
-      unitId: u.id, topic: u.topic, level, levelLabel: LEVEL_LABEL[level],
+      passageId: p.id, passageTitle: p.title, unitId: u.id, topic: u.topic,
+      level, levelLabel: LEVEL_LABEL[level],
+      timeCondition: cond,
+      timeLimitMs: cond === 'limited' ? timeLimitFor(v.syllables) : null,
+      minReadMs: minReadFor(v.syllables),
       text: v.text, score: v.score, raw: v.raw,
       features: v.features, syllables: v.syllables, words: v.words,
     };
@@ -105,11 +109,72 @@ function startPassageReading() {
   window.addEventListener('keydown', readKeyHandler);
 }
 
+function clearTimers() {
+  if (state.advanceTimer) { clearTimeout(state.advanceTimer); state.advanceTimer = null; }
+  if (state.gateTimer) { clearTimeout(state.gateTimer); state.gateTimer = null; }
+}
+
 function enterUnit() {
-  state.enterTime = performance.now();
-  const k = keyOf(state.plan[state.idx]);
+  clearTimers();
+  const item = state.plan[state.idx];
+  const k = keyOf(item);
   state.visits[k] = (state.visits[k] || 0) + 1;
+  state.enterTime = performance.now();
+  state.canAdvance = false;
   renderUnit();
+
+  // 최소 읽기시간 게이트: 이 시간 전에는 다음으로 못 넘어감
+  $('btn-next').disabled = true;
+  state.gateTimer = setTimeout(() => {
+    state.canAdvance = true;
+    $('btn-next').disabled = false;
+  }, item.minReadMs);
+
+  // 제한 조건: 시간이 지나면 자동으로 다음 명제로
+  if (item.timeCondition === 'limited') {
+    startTimerBar(item.timeLimitMs);
+    state.advanceTimer = setTimeout(() => {
+      state.autoFlag[k] = true;
+      advance('timeout');
+    }, item.timeLimitMs);
+  } else {
+    stopTimerBar();
+  }
+}
+
+function renderUnit() {
+  const total = state.plan.length;
+  const i = state.idx;
+  const item = state.plan[i];
+  const limited = item.timeCondition === 'limited';
+
+  $('read-passage').textContent = `${item.passageTitle}  (지문 ${state.pIdx + 1} / 2)`;
+  $('read-cond').innerHTML = limited
+    ? '<span class="cond-limited">⏱ 시간제한 — 시간이 지나면 자동으로 넘어갑니다</span>'
+    : '<span class="cond-free">자유 읽기 — 이해되면 넘기세요</span>';
+  $('sentence').textContent = item.text;
+  $('read-counter').textContent = `${i + 1} / ${total}`;
+  $('read-fill').style.width = `${((i + 1) / total) * 100}%`;
+  $('btn-next').textContent = (i < total - 1) ? '다음 →' : '문제 풀기 →';
+  $('read-timer').hidden = !limited;
+}
+
+// 제한 조건 카운트다운 바
+function startTimerBar(ms) {
+  const bar = $('timer-fill');
+  $('read-timer').hidden = false;
+  bar.style.transition = 'none';
+  bar.style.width = '100%';
+  // 리플로우 강제 후 트랜지션 시작
+  void bar.offsetWidth;
+  bar.style.transition = `width ${ms}ms linear`;
+  bar.style.width = '0%';
+}
+function stopTimerBar() {
+  const bar = $('timer-fill');
+  bar.style.transition = 'none';
+  bar.style.width = '0%';
+  $('read-timer').hidden = true;
 }
 
 function recordExit(direction) {
@@ -120,62 +185,53 @@ function recordExit(direction) {
   state.dwell[k] = (state.dwell[k] || 0) + ms;
   state.allEvents.push({
     passageId: item.passageId, unitId: item.unitId, level: item.level,
-    bottleneckScore: item.score, dwellMs: ms, visit: state.visits[k] || 1,
-    direction, timestamp: Date.now(),
+    timeCondition: item.timeCondition, bottleneckScore: item.score,
+    dwellMs: ms, direction, timestamp: Date.now(),
   });
 }
 
-function renderUnit() {
-  const total = state.plan.length;
-  const i = state.idx;
-  const item = state.plan[i];
-  const k = keyOf(item);
-
-  $('read-passage').textContent = `${item.passageTitle}  (지문 ${state.pIdx + 1} / 2)`;
-  $('sentence').textContent = item.text;
-  $('read-counter').textContent = `${i + 1} / ${total}`;
-  $('read-revisit').innerHTML =
-    (state.visits[k] || 0) > 1 ? '<span class="revisit-tag">· 재방문</span>' : '';
-  $('read-fill').style.width = `${((i + 1) / total) * 100}%`;
-  $('btn-prev').disabled = (i === 0);
-  $('btn-next').textContent = (i < total - 1) ? '다음 →' : '문제 풀기 →';
-}
-
-function goNext() {
+// 다음으로 진행 (버튼/스페이스='next', 자동='timeout')
+function advance(direction) {
+  clearTimers();
   const total = state.plan.length;
   if (state.idx < total - 1) {
-    recordExit('next');
+    recordExit(direction);
     state.idx++;
     enterUnit();
   } else {
-    recordExit('finish');
+    recordExit(direction === 'timeout' ? 'timeout' : 'finish');
     finishPassageReading();
   }
 }
 
-function goPrev() {
-  if (state.idx > 0) {
-    recordExit('prev');
-    state.idx--;
-    enterUnit();
+function readKeyHandler(e) {
+  if (e.code === 'Space' || e.code === 'ArrowRight' || e.code === 'Enter') {
+    e.preventDefault();
+    if (state.canAdvance) advance('next');
   }
 }
+$('btn-next').addEventListener('click', () => { if (state.canAdvance) advance('next'); });
 
-// 현재 지문의 명제별 측정치를 누적 테이블에 넣고 문항으로 이동
 function finishPassageReading() {
+  clearTimers();
+  stopTimerBar();
   state.plan.forEach(item => {
     const k = keyOf(item);
     const totalMs = state.dwell[k] || 0;
     state.allPerUnit.push({
       passageId: item.passageId, passageTitle: item.passageTitle,
-      unitId: item.unitId, topic: item.topic, level: item.level, levelLabel: item.levelLabel,
+      unitId: item.unitId, topic: item.topic,
+      level: item.level, levelLabel: item.levelLabel,
+      timeCondition: item.timeCondition,
+      timeLimitMs: item.timeLimitMs,
+      autoAdvanced: !!state.autoFlag[k],
       bottleneckScore: item.score, bottleneckRaw: item.raw,
       embeds: item.features.embeds, nominal: item.features.nominal, passive: item.features.passive,
       clauseDensity: Math.round((item.features.clauses / item.features.sentences) * 100) / 100,
       syllables: item.syllables, words: item.words,
-      totalDwellMs: totalMs,                                                   // 주 지표: 명제당 총 읽기시간
-      msPerWord: item.words ? Math.round((totalMs / item.words) * 10) / 10 : null,        // 보조 지표: 어절당(길이 통제)
-      msPerSyllable: item.syllables ? Math.round((totalMs / item.syllables) * 10) / 10 : null, // 참고용(권장 안 함)
+      totalDwellMs: totalMs,
+      msPerWord: item.words ? Math.round((totalMs / item.words) * 10) / 10 : null,
+      msPerSyllable: item.syllables ? Math.round((totalMs / item.syllables) * 10) / 10 : null,
       visits: state.visits[k] || 1,
       rereads: Math.max(0, (state.visits[k] || 1) - 1),
     });
@@ -184,18 +240,7 @@ function finishPassageReading() {
   startPassageQuiz();
 }
 
-function readKeyHandler(e) {
-  if (e.code === 'Space' || e.code === 'ArrowRight' || e.code === 'Enter') {
-    e.preventDefault(); goNext();
-  } else if (e.code === 'ArrowLeft') {
-    e.preventDefault(); goPrev();
-  }
-}
-
-$('btn-next').addEventListener('click', goNext);
-$('btn-prev').addEventListener('click', goPrev);
-
-// ══════════ 3. 이해 문항 화면 (현재 지문) ══════════
+// ══════════ 3. 이해 문항 (+ 주의점검) ══════════
 
 function startPassageQuiz() {
   const p = state.order[state.pIdx];
@@ -203,19 +248,19 @@ function startPassageQuiz() {
 
   const list = $('quiz-list');
   list.innerHTML = '';
-
   const h = document.createElement('h2');
   h.className = 'quiz-section';
   h.textContent = `${p.title}  —  이해 문항`;
   list.appendChild(h);
 
   state.quizList.forEach((q, qi) => {
+    const isAtt = q.type === 'attention';
     const card = document.createElement('div');
-    card.className = 'card';
+    card.className = 'card' + (isAtt ? ' att-card' : '');
 
     const idxLine = document.createElement('div');
     idxLine.className = 'q-index';
-    idxLine.textContent = `문항 ${qi + 1} / ${state.quizList.length}`;
+    idxLine.textContent = isAtt ? '확인 문항' : `문항 ${qi + 1} / ${state.quizList.length - 1}`;
     card.appendChild(idxLine);
 
     const title = document.createElement('h3');
@@ -228,48 +273,43 @@ function startPassageQuiz() {
     q.options.forEach((opt, oi) => {
       const label = document.createElement('label');
       const radio = document.createElement('input');
-      radio.type = 'radio';
-      radio.name = q.id;
+      radio.type = 'radio'; radio.name = q.id;
       radio.addEventListener('change', () => selectAnswer(q.id, oi));
       const span = document.createElement('span');
       span.textContent = opt;
-      label.appendChild(radio);
-      label.appendChild(span);
+      label.appendChild(radio); label.appendChild(span);
       opts.appendChild(label);
     });
     card.appendChild(opts);
 
-    const confBlock = document.createElement('div');
-    confBlock.className = 'confidence-block';
-    const confLabel = document.createElement('label');
-    confLabel.className = 'confidence-label';
-    confLabel.textContent = '이 답을 얼마나 확신하나요?';
-    confBlock.appendChild(confLabel);
-
-    const confRow = document.createElement('div');
-    confRow.className = 'confidence-row';
-    confidenceOptions.forEach(c => {
-      const label = document.createElement('label');
-      const radio = document.createElement('input');
-      radio.type = 'radio';
-      radio.name = `conf_${q.id}`;
-      radio.addEventListener('change', () => { state.confidences[q.id] = c.value; });
-      const span = document.createElement('span');
-      span.textContent = c.label;
-      label.appendChild(radio);
-      label.appendChild(span);
-      confRow.appendChild(label);
-    });
-    confBlock.appendChild(confRow);
-    card.appendChild(confBlock);
-
+    // 주의점검은 확신도를 묻지 않는다
+    if (!isAtt) {
+      const confBlock = document.createElement('div');
+      confBlock.className = 'confidence-block';
+      const confLabel = document.createElement('label');
+      confLabel.className = 'confidence-label';
+      confLabel.textContent = '이 답을 얼마나 확신하나요?';
+      confBlock.appendChild(confLabel);
+      const confRow = document.createElement('div');
+      confRow.className = 'confidence-row';
+      confidenceOptions.forEach(c => {
+        const label = document.createElement('label');
+        const radio = document.createElement('input');
+        radio.type = 'radio'; radio.name = `conf_${q.id}`;
+        radio.addEventListener('change', () => { state.confidences[q.id] = c.value; });
+        const span = document.createElement('span'); span.textContent = c.label;
+        label.appendChild(radio); label.appendChild(span);
+        confRow.appendChild(label);
+      });
+      confBlock.appendChild(confRow);
+      card.appendChild(confBlock);
+    }
     list.appendChild(card);
   });
 
   const isLast = (state.pIdx === state.order.length - 1);
   $('btn-submit').textContent = isLast ? '제출하기' : '다음 지문 읽기 →';
   $('btn-submit').disabled = false;
-
   state.quizStart = performance.now();
   showScreen('quiz');
 }
@@ -286,11 +326,10 @@ $('btn-submit').addEventListener('click', onQuizNext);
 async function onQuizNext() {
   if (state.submitting) return;
   const err = $('quiz-err');
-
   const missing = [];
   state.quizList.forEach(q => {
     if (state.answers[q.id] === undefined) missing.push(`${q.id} 답`);
-    if (!state.confidences[q.id]) missing.push(`${q.id} 확신도`);
+    if (q.type !== 'attention' && !state.confidences[q.id]) missing.push(`${q.id} 확신도`);
   });
   if (missing.length > 0) {
     err.textContent = `아직 응답하지 않은 항목이 있습니다: ${missing.slice(0, 3).join(', ')} 등`;
@@ -299,10 +338,17 @@ async function onQuizNext() {
   }
   err.hidden = true;
 
-  // 현재 지문 문항 결과를 누적
   const unitByKey = {};
   state.allPerUnit.forEach(u => { unitByKey[`${u.passageId}#${u.unitId}`] = u; });
+
   state.quizList.forEach(q => {
+    if (q.type === 'attention') {
+      state.allQuiz.push({
+        qid: q.id, passageId: q.passageId, type: 'attention', sourceUnit: null,
+        chosen: state.answers[q.id], correct: state.answers[q.id] === q.answer,
+      });
+      return;
+    }
     const src = unitByKey[`${q.passageId}#${q.sourceUnit}`];
     const chosen = state.answers[q.id];
     const correct = chosen === q.answer;
@@ -310,7 +356,8 @@ async function onQuizNext() {
     state.allQuiz.push({
       qid: q.id, passageId: q.passageId, type: q.type, sourceUnit: q.sourceUnit,
       level: src.level, levelLabel: src.levelLabel, bottleneckScore: src.bottleneckScore,
-      srcTotalMs: src.totalDwellMs, srcMsPerWord: src.msPerWord, srcMsPerSyllable: src.msPerSyllable, srcRereads: src.rereads,
+      srcTimeCondition: src.timeCondition, srcAutoAdvanced: src.autoAdvanced,
+      srcTotalMs: src.totalDwellMs, srcMsPerWord: src.msPerWord, srcRereads: src.rereads,
       chosen, correct, confidence,
       responseMs: state.responseTimes[q.id] ?? null,
       illusion: !correct && confidence === 'sure',
@@ -319,7 +366,6 @@ async function onQuizNext() {
     });
   });
 
-  // 다음 지문이 남았으면 그 지문 읽기로, 아니면 최종 제출
   if (state.pIdx < state.order.length - 1) {
     state.pIdx++;
     startPassageReading();
@@ -333,7 +379,6 @@ async function finalizeAndSubmit() {
   $('btn-submit').disabled = true;
   $('btn-submit').textContent = '전송 중...';
   const err = $('quiz-err');
-
   const finalData = buildFinalData();
 
   try {
@@ -353,18 +398,27 @@ async function finalizeAndSubmit() {
     $('btn-submit').textContent = '다시 제출하기';
     return;
   }
-
   renderDone(finalData);
   showScreen('done');
 }
 
 function buildFinalData() {
-  const quizResults = state.allQuiz;
+  const comp = state.allQuiz.filter(r => r.type !== 'attention');   // 이해 문항
+  const att = state.allQuiz.filter(r => r.type === 'attention');    // 주의점검
   const perUnit = state.allPerUnit;
+  const attentionPassed = att.every(r => r.correct);
 
   const scoreByType = { recall: 0, integration: 0, inference: 0 };
   const countByType = { recall: 0, integration: 0, inference: 0 };
-  quizResults.forEach(r => { countByType[r.type]++; if (r.correct) scoreByType[r.type]++; });
+  comp.forEach(r => { countByType[r.type]++; if (r.correct) scoreByType[r.type]++; });
+
+  // 시간조건별 정답률 (핵심 신규 분석)
+  const byTime = {};
+  ['free', 'limited'].forEach(c => {
+    const qs = comp.filter(r => r.srcTimeCondition === c);
+    byTime[c] = { n: qs.length, correct: qs.filter(r => r.correct).length,
+      accuracy: qs.length ? Math.round(qs.filter(r => r.correct).length / qs.length * 100) : null };
+  });
 
   const byPassage = {};
   perUnit.forEach(u => {
@@ -373,33 +427,36 @@ function buildFinalData() {
   });
   Object.keys(byPassage).forEach(pid => {
     const b = byPassage[pid];
-    const qsP = quizResults.filter(r => r.passageId === pid);
+    const qsP = comp.filter(r => r.passageId === pid);
     b.totalMs = b.msSum;
     b.msPerWord = b.wordSum ? Math.round(b.msSum / b.wordSum * 10) / 10 : null;
-    b.correct = qsP.filter(r => r.correct).length;
-    b.total = qsP.length;
+    b.correct = qsP.filter(r => r.correct).length; b.total = qsP.length;
     delete b.msSum; delete b.wordSum;
   });
 
   return {
-    session: state.session,
+    session: Object.assign({}, state.session, { attentionPassed, attentionCorrect: att.filter(r => r.correct).length, attentionTotal: att.length }),
     reading: { perUnit, events: state.allEvents, finishedAt: new Date().toISOString() },
-    quiz: quizResults,
+    quiz: comp,
+    attention: att,
     summary: {
-      totalCorrect: quizResults.filter(r => r.correct).length,
-      totalQuestions: quizResults.length,
-      assignMethod: 'random',
-      meanBottleneck: Math.round(perUnit.reduce((s, u) => s + u.bottleneckScore, 0) / perUnit.length * 10) / 10,
-      meanTotalMs: Math.round(perUnit.reduce((s, u) => s + u.totalDwellMs, 0) / perUnit.length),
-      meanMsPerWord: Math.round(perUnit.reduce((s, u) => s + u.msPerWord, 0) / perUnit.length * 10) / 10,
-      scoreByType, countByType, byPassage,
-      illusionCount: quizResults.filter(r => r.illusion).length,
-      trueUnderstandingCount: quizResults.filter(r => r.trueUnderstanding).length,
-      luckyGuessCount: quizResults.filter(r => r.luckyGuess).length,
+      totalCorrect: comp.filter(r => r.correct).length,
+      totalQuestions: comp.length,
+      assignMethod: 'random-2factor',
+      attentionPassed,
+      meanBottleneck: round1(avg(perUnit.map(u => u.bottleneckScore))),
+      meanMsPerWord: round1(avg(perUnit.map(u => u.msPerWord))),
+      meanTotalMs: Math.round(avg(perUnit.map(u => u.totalDwellMs))),
+      scoreByType, countByType, byTime, byPassage,
+      illusionCount: comp.filter(r => r.illusion).length,
+      trueUnderstandingCount: comp.filter(r => r.trueUnderstanding).length,
+      luckyGuessCount: comp.filter(r => r.luckyGuess).length,
     },
     submittedAt: new Date().toISOString(),
   };
 }
+function avg(a) { return a.length ? a.reduce((s, x) => s + x, 0) / a.length : 0; }
+function round1(x) { return Math.round(x * 10) / 10; }
 
 async function sendToSheets(payload) {
   if (!SHEETS_WEBHOOK_URL) {
@@ -410,67 +467,61 @@ async function sendToSheets(payload) {
   const body = JSON.stringify(payload);
   try {
     const res = await fetch(SHEETS_WEBHOOK_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body, redirect: 'follow',
+      method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body, redirect: 'follow',
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
   } catch (e) {
     console.warn('[일반 전송 실패, no-cors로 재시도]', e);
     await fetch(SHEETS_WEBHOOK_URL, {
-      method: 'POST', mode: 'no-cors',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body,
+      method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body,
     });
   }
 }
 
-// ══════════ 4. 완료 화면 ══════════
+// ══════════ 4. 완료 ══════════
 
 function renderDone(data) {
-  const { summary } = data;
+  const { summary, session } = data;
   const scorePct = Math.round((summary.totalCorrect / summary.totalQuestions) * 100);
+  const bt = summary.byTime;
 
   const rows = data.reading.perUnit
-    .slice()
-    .sort((a, b) => a.bottleneckScore - b.bottleneckScore)
+    .slice().sort((a, b) => a.bottleneckScore - b.bottleneckScore)
     .map(u => {
-      const qcount = data.quiz.filter(q => q.passageId === u.passageId && q.sourceUnit === u.unitId).length;
-      const qcorr = data.quiz.filter(q => q.passageId === u.passageId && q.sourceUnit === u.unitId && q.correct).length;
+      const qs = data.quiz.filter(q => q.passageId === u.passageId && q.sourceUnit === u.unitId);
+      const acc = qs.length ? `${qs.filter(q => q.correct).length}/${qs.length}` : '-';
       return `<tr>
-        <td>${u.passageTitle}</td>
-        <td>${u.topic}</td>
-        <td class="num">${u.levelLabel}</td>
-        <td class="num">${u.bottleneckScore}</td>
+        <td>${u.passageTitle}</td><td>${u.topic}</td>
+        <td class="num">${u.levelLabel}</td><td class="num">${u.bottleneckScore}</td>
+        <td class="num">${u.timeCondition === 'limited' ? '제한' : '자유'}</td>
         <td class="num">${(u.totalDwellMs / 1000).toFixed(1)}</td>
-        <td class="num">${u.msPerWord}</td>
-        <td class="num">${qcount ? `${qcorr}/${qcount}` : '-'}</td>
+        <td class="num">${acc}</td>
       </tr>`;
     }).join('');
 
-  const illusion = summary.illusionCount > 0 ? `
-    <div class="hint" style="margin-top:16px">
-      <strong>이해 착각</strong> 감지: ${summary.illusionCount}문항 (틀렸지만 확신했던 문항)
-    </div>` : '';
+  const attNote = session.attentionPassed
+    ? ''
+    : `<div class="hint" style="margin-top:16px;border-left-color:#b26b1e">주의점검 문항을 놓치셨습니다. 데이터 분석 시 참고됩니다.</div>`;
 
   $('done-body').innerHTML = `
     <div class="card">
       <h2>당신의 결과</h2>
-      <p>이번에는 문장 난이도가 <strong>무작위로 섞여</strong> 제시되었습니다
-         (평균 병목 점수 ${summary.meanBottleneck} / 10).</p>
+      <p>문장 난이도와 읽기 시간(자유/제한)이 <strong>무작위로 섞여</strong> 제시되었습니다
+         (평균 병목 ${summary.meanBottleneck}/10).</p>
       <p>전체 정답률: <strong>${summary.totalCorrect} / ${summary.totalQuestions} (${scorePct}%)</strong></p>
-      <p>평균 어절당 읽기 시간: <strong>${summary.meanMsPerWord} ms</strong></p>
+      <p>읽기 조건별 정답률 —
+         자유 <strong>${bt.free.accuracy ?? '-'}%</strong> ·
+         시간제한 <strong>${bt.limited.accuracy ?? '-'}%</strong></p>
       <div class="table-wrap">
         <table>
-          <thead>
-            <tr>
-              <th>지문</th><th>내용</th>
-              <th class="num">난이도</th><th class="num">병목</th>
-              <th class="num">총시간(초)</th><th class="num">어절당(ms)</th><th class="num">정답</th>
-            </tr>
-          </thead>
+          <thead><tr>
+            <th>지문</th><th>내용</th><th class="num">난이도</th>
+            <th class="num">병목</th><th class="num">읽기</th>
+            <th class="num">시간(초)</th><th class="num">정답</th>
+          </tr></thead>
           <tbody>${rows}</tbody>
         </table>
       </div>
-      ${illusion}
+      ${attNote}
     </div>`;
 }

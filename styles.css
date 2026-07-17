@@ -183,6 +183,22 @@ button:disabled { background: #ccc; cursor: not-allowed; }
   border-bottom: 2px solid #1a1a1a;
 }
 
+/* 읽기 조건 표시 */
+.read-cond { font-size: 13px; margin: 4px 0 8px; min-height: 18px; }
+.cond-limited { color: #c0392b; font-weight: 600; }
+.cond-free { color: #999; }
+
+/* 시간제한 카운트다운 바 */
+.read-timer {
+  height: 6px; background: #f0e0dd; border-radius: 3px;
+  overflow: hidden; margin: -12px 0 20px;
+}
+.timer-fill { height: 100%; width: 0%; background: #c0392b; }
+
+/* 주의점검 문항 카드 */
+.att-card { border-style: dashed; background: #fbfaf7; }
+.att-card .q-text { font-size: 14px; color: #555; font-weight: 600; }
+
 .hint {
   font-size: 13px;
   color: #666;

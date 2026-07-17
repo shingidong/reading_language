@@ -1,14 +1,25 @@
 // ============================================
-// 병목 문장 독해 실험 — 자극 데이터
+// 병목 문장 독해 실험 — 자극 데이터 (v6, 2026-07-17)
 // ============================================
-// 설계: 참가자가 시작 화면에서 난이도(상/중/하)를 직접 선택한다.
-//   - 선택한 수준에 따라 두 지문(열팽창 · 삼투)을 모두 그 수준으로 읽는다.
-//   - 지문은 명제 5개로 구성되며, 각 명제는 상/중/하 세 버전을 갖는다.
-//   - 병목 점수(1~10)는 문법 자질로 계산한 연속 변인. 상/중/하는 라벨일 뿐이다.
+// 설계: 개인 내(within-subject) 2요인 무작위 배정.
+//   - 요인A 병목수준(상/중/하): 명제마다 무작위 배정. 병목 점수(1~10)는 문법 자질로 계산.
+//   - 요인B 읽기조건(자유/제한): 명제마다 무작위 배정.
+//       자유=자기조절 읽기, 제한=음절수 비례 시간 뒤 자동 넘김(보상 가설 검증용).
+//   - 두 지문(열팽창·삼투) × 명제 5개 = 한 사람이 명제 10개를 읽는다.
 //
-// 왜 두 지문인가: 한 지문(명제 5개)만으로는 병목 점수 표본이 적어 신뢰도가 약함.
-//   두 지문(명제 10개)이면 병목 점수-읽기시간 관계가 더 안정적으로 추정된다.
+// 이번 판의 변경점
+//   · '하' 버전을 '문장 쪼개기'가 아닌 '등위 접속'으로 재작성 → 응집성 confound 제거,
+//     안긴절 수가 중보다 커지던 문제 해소(WEIGHTS.md 참고).
+//   · 시간제한 조건 도입, 최소 읽기시간 게이트·주의점검으로 부실 응답 차단.
 // ============================================
+
+// ── 실험 타이밍 상수 ──
+// 최소 읽기시간(게이트): 이 시간 전에는 '다음' 버튼이 잠긴다(안 읽고 넘기기 방지).
+const MIN_MS_PER_SYLLABLE = 45;
+// 시간제한(제한 조건): 음절수 × 이 값 뒤 자동으로 다음 명제로 넘어간다.
+//   자유 조건의 관측 평균(약 150~200ms/음절)보다 짧게 잡아 '보상'을 차단한다.
+const LIMIT_MS_PER_SYLLABLE = 110;
+const LIMIT_MS_FLOOR = 2500;   // 아주 짧은 명제도 최소 이만큼은 보여준다
 
 // 병목 점수 가중치 (2차 데이터 기반 재추정, 2026-07-17)
 //   embeds  : 안긴절 수 — 데이터에서 읽기시간 최대 기여(표준화β +0.22, +1307ms/개). 최상위 가중치.
@@ -34,8 +45,8 @@ const passages = [
                   features: { embeds: 2, nominal: 1, passive: 1, clauses: 4, sentences: 1 } },
           mid:  { text: '물체는 온도가 변하면 부피 또한 변하게 되는데, 이렇게 부피가 변하는 현상을 열팽창이라 한다.',
                   features: { embeds: 2, nominal: 0, passive: 0, clauses: 4, sentences: 1 } },
-          low:  { text: '물체는 온도가 변하면 부피도 변한다. 이 현상을 열팽창이라 한다.',
-                  features: { embeds: 1, nominal: 0, passive: 0, clauses: 3, sentences: 2 } },
+          low:  { text: '물체는 온도가 변하면 부피도 변하며, 이런 현상을 열팽창이라 한다.',
+                  features: { embeds: 1, nominal: 0, passive: 0, clauses: 3, sentences: 1 } },
         },
       },
       {
@@ -45,8 +56,8 @@ const passages = [
                   features: { embeds: 3, nominal: 1, passive: 3, clauses: 4, sentences: 1 } },
           mid:  { text: '고체가 열팽창하는 정도는 물질마다 고유하게 정해지는 열팽창 계수라 불리는 값으로 나타낸다.',
                   features: { embeds: 3, nominal: 0, passive: 2, clauses: 4, sentences: 1 } },
-          low:  { text: '고체가 얼마나 팽창하는지는 물질마다 다르다. 이 정도를 열팽창 계수라 한다.',
-                  features: { embeds: 1, nominal: 0, passive: 0, clauses: 3, sentences: 2 } },
+          low:  { text: '고체는 물질마다 팽창하는 정도가 다르고, 이 정도를 열팽창 계수라 한다.',
+                  features: { embeds: 1, nominal: 0, passive: 0, clauses: 3, sentences: 1 } },
         },
       },
       {
@@ -56,8 +67,8 @@ const passages = [
                   features: { embeds: 4, nominal: 4, passive: 1, clauses: 5, sentences: 1 } },
           mid:  { text: '서로 다른 두 금속을 붙여 만든 바이메탈은 온도가 변할 때 두 금속이 서로 다르게 팽창하여 휘어지는 성질을 이용하는 소자이다.',
                   features: { embeds: 5, nominal: 0, passive: 1, clauses: 6, sentences: 1 } },
-          low:  { text: '바이메탈은 서로 다른 두 금속을 붙여 만든다. 온도가 변하면 두 금속이 다르게 팽창한다. 그래서 바이메탈이 휘어진다.',
-                  features: { embeds: 2, nominal: 0, passive: 1, clauses: 6, sentences: 3 } },
+          low:  { text: '바이메탈은 서로 다른 두 금속을 붙여 만들고, 온도가 변하면 두 금속이 다르게 팽창하여 휜다.',
+                  features: { embeds: 1, nominal: 0, passive: 0, clauses: 5, sentences: 1 } },
         },
       },
       {
@@ -67,8 +78,8 @@ const passages = [
                   features: { embeds: 5, nominal: 2, passive: 2, clauses: 6, sentences: 1 } },
           mid:  { text: '바이메탈의 최대 이동 거리는 외부 힘이 없을 때 주어진 온도 변화에서 띠의 끝이 갈 수 있는 최대 거리를 뜻한다.',
                   features: { embeds: 2, nominal: 1, passive: 1, clauses: 5, sentences: 1 } },
-          low:  { text: '바이메탈에 외부 힘이 작용하지 않는다고 하자. 이때 띠의 끝이 갈 수 있는 최대 거리가 있다. 이 거리를 최대 이동 거리라 한다. 온도가 많이 변하면 이 거리도 커진다.',
-                  features: { embeds: 3, nominal: 0, passive: 0, clauses: 7, sentences: 4 } },
+          low:  { text: '바이메탈에 외부 힘이 없으면 띠의 끝은 일정 거리까지만 움직이고, 이 최대 이동 거리는 온도가 많이 변할수록 커진다.',
+                  features: { embeds: 2, nominal: 0, passive: 0, clauses: 4, sentences: 1 } },
         },
       },
       {
@@ -78,8 +89,8 @@ const passages = [
                   features: { embeds: 2, nominal: 3, passive: 3, clauses: 3, sentences: 1 } },
           mid:  { text: '이러한 원리는 온도가 변하면 회로가 자동으로 열리거나 닫혀 전류가 조절되는 온도 조절 장치에 널리 쓰인다.',
                   features: { embeds: 2, nominal: 0, passive: 1, clauses: 5, sentences: 1 } },
-          low:  { text: '이 원리는 온도 조절 장치에 널리 쓰인다. 온도가 변하면 회로가 자동으로 열리거나 닫힌다. 그래서 전류가 흐르거나 멈춘다.',
-                  features: { embeds: 1, nominal: 0, passive: 0, clauses: 5, sentences: 3 } },
+          low:  { text: '이 원리는 온도 조절 장치에 쓰인다. 온도가 변하면 회로가 자동으로 열리거나 닫혀 전류가 흐르거나 멈춘다.',
+                  features: { embeds: 1, nominal: 0, passive: 1, clauses: 6, sentences: 2 } },
         },
       },
     ],
@@ -103,6 +114,9 @@ const passages = [
           '점점 짧아져 0에 가까워진다',
           '힘과 무관하게 일정하다',
         ], answer: 2 },
+      { id: 'T_ATT', type: 'attention', sourceUnit: null,
+        text: '(성실 응답 확인용) 이 문항은 내용과 무관합니다. 아래에서 반드시 "두 번째"를 선택해 주세요.',
+        options: ['첫 번째', '두 번째', '세 번째', '네 번째'], answer: 1 },
     ],
   },
   {
@@ -116,8 +130,8 @@ const passages = [
                   features: { embeds: 4, nominal: 2, passive: 2, clauses: 5, sentences: 1 } },
           mid:  { text: '용매만 통과시키는 반투막을 사이에 두고 농도가 다른 두 용액이 있으면, 용매가 저농도 쪽에서 고농도 쪽으로 이동하는데 이를 삼투라 한다.',
                   features: { embeds: 3, nominal: 0, passive: 1, clauses: 6, sentences: 2 } },
-          low:  { text: '반투막은 용매만 통과시킨다. 이 막을 두고 농도가 다른 두 용액이 있다. 그러면 용매가 저농도 쪽에서 고농도 쪽으로 이동한다. 이 현상을 삼투라 한다.',
-                  features: { embeds: 2, nominal: 0, passive: 0, clauses: 6, sentences: 3 } },
+          low:  { text: '반투막은 용매만 통과시킨다. 농도가 다른 두 용액을 이 막으로 나누면, 용매가 저농도에서 고농도로 옮겨 가는데 이를 삼투라 한다.',
+                  features: { embeds: 1, nominal: 0, passive: 0, clauses: 4, sentences: 2 } },
         },
       },
       {
@@ -127,8 +141,8 @@ const passages = [
                   features: { embeds: 4, nominal: 2, passive: 2, clauses: 6, sentences: 1 } },
           mid:  { text: '삼투는 막 양쪽 용액의 농도 차이를 줄이는 방향으로 용매가 이동하여 두 용액의 농도가 같아지려 하기 때문에 일어난다.',
                   features: { embeds: 3, nominal: 0, passive: 0, clauses: 6, sentences: 1 } },
-          low:  { text: '막 양쪽 용액은 농도가 다르다. 용액은 농도가 같아지려 한다. 그래서 용매가 저농도 쪽에서 고농도 쪽으로 이동한다. 이렇게 삼투가 일어난다.',
-                  features: { embeds: 2, nominal: 0, passive: 0, clauses: 6, sentences: 4 } },
+          low:  { text: '막 양쪽 용액은 농도가 다르고, 두 용액은 농도가 같아지려 한다. 그래서 용매가 저농도에서 고농도로 이동하며 삼투가 일어난다.',
+                  features: { embeds: 0, nominal: 0, passive: 0, clauses: 4, sentences: 2 } },
         },
       },
       {
@@ -138,8 +152,8 @@ const passages = [
                   features: { embeds: 3, nominal: 2, passive: 2, clauses: 5, sentences: 1 } },
           mid:  { text: '삼투압은 삼투에 의해 용매가 이동하는 것을 막기 위해 고농도 용액 쪽에 가해 주는 압력이다.',
                   features: { embeds: 3, nominal: 0, passive: 0, clauses: 4, sentences: 1 } },
-          low:  { text: '삼투가 일어나면 용매가 이동한다. 이 이동을 막으려면 고농도 용액 쪽을 눌러 주어야 한다. 이때 필요한 압력을 삼투압이라 한다.',
-                  features: { embeds: 1, nominal: 0, passive: 0, clauses: 3, sentences: 2 } },
+          low:  { text: '삼투가 일어나면 용매가 이동하는데, 이 이동을 멈추려면 고농도 쪽에 압력을 주어야 한다. 이 압력을 삼투압이라 한다.',
+                  features: { embeds: 2, nominal: 0, passive: 0, clauses: 5, sentences: 2 } },
         },
       },
       {
@@ -149,8 +163,8 @@ const passages = [
                   features: { embeds: 5, nominal: 2, passive: 2, clauses: 7, sentences: 1 } },
           mid:  { text: '온도가 일정할 때 삼투압은 용액에 녹아 있는 용질 입자가 많을수록 그에 비례하여 커진다.',
                   features: { embeds: 3, nominal: 0, passive: 0, clauses: 6, sentences: 2 } },
-          low:  { text: '온도를 일정하게 두자. 용액에 녹은 용질 입자가 많다고 하자. 그러면 삼투압도 그만큼 커진다. 즉 입자 수와 삼투압은 비례한다.',
-                  features: { embeds: 2, nominal: 0, passive: 0, clauses: 6, sentences: 4 } },
+          low:  { text: '온도가 일정하면 용질 입자가 많을수록 삼투압도 커진다. 즉 입자 수와 삼투압은 비례한다.',
+                  features: { embeds: 2, nominal: 0, passive: 0, clauses: 4, sentences: 2 } },
         },
       },
       {
@@ -160,8 +174,8 @@ const passages = [
                   features: { embeds: 3, nominal: 2, passive: 3, clauses: 6, sentences: 1 } },
           mid:  { text: '이러한 원리는 바닷물에서 용질을 걸러 내어 민물을 얻는 역삼투 방식의 해수 담수화 장치에 널리 쓰인다.',
                   features: { embeds: 2, nominal: 0, passive: 0, clauses: 5, sentences: 1 } },
-          low:  { text: '이 원리는 바닷물을 민물로 바꾸는 데 쓰인다. 바닷물에 센 압력을 준다. 그러면 물만 반투막을 빠져나온다. 이렇게 소금기를 걸러 낸다.',
-                  features: { embeds: 2, nominal: 0, passive: 0, clauses: 5, sentences: 4 } },
+          low:  { text: '이 원리는 바닷물을 민물로 바꾼다. 바닷물에 센 압력을 주면 물만 반투막을 빠져나오고 소금기는 남는다.',
+                  features: { embeds: 1, nominal: 0, passive: 0, clauses: 4, sentences: 2 } },
         },
       },
     ],
@@ -185,6 +199,9 @@ const passages = [
           '반투막의 구멍을 더 넓히기 위해',
           '용질이 스스로 막을 빠져나가게 하기 위해',
         ], answer: 0 },
+      { id: 'O_ATT', type: 'attention', sourceUnit: null,
+        text: '(성실 응답 확인용) 이 문항은 내용과 무관합니다. 아래에서 반드시 "네 번째"를 선택해 주세요.',
+        options: ['첫 번째', '두 번째', '세 번째', '네 번째'], answer: 3 },
     ],
   },
 ];
@@ -236,9 +253,32 @@ function assignPropositionLevels(nProps) {
   const per = Math.floor(nProps / LEVELS.length);
   LEVELS.forEach(L => { for (let i = 0; i < per; i++) base.push(L); });
   while (base.length < nProps) base.push(LEVELS[Math.floor(Math.random() * LEVELS.length)]);
-  for (let i = base.length - 1; i > 0; i--) {
+  return shuffle(base);
+}
+
+// ── 읽기 조건(자유/제한) 무작위 배정 ──
+// 명제 절반은 '자유'(자기조절), 절반은 '제한'(시간제한)으로 무작위 배정한다.
+// 병목 수준과 독립적으로 배정되므로, 한 사람 안에서 (병목 × 시간조건)을 교차 비교할 수 있다.
+function assignTimeConditions(nProps) {
+  const base = [];
+  for (let i = 0; i < nProps; i++) base.push(i < Math.ceil(nProps / 2) ? 'limited' : 'free');
+  return shuffle(base);
+}
+
+function shuffle(arr) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
-    [base[i], base[j]] = [base[j], base[i]];
+    [a[i], a[j]] = [a[j], a[i]];
   }
-  return base;
+  return a;
+}
+
+// 명제의 음절 수에 따른 시간제한(ms)
+function timeLimitFor(syllables) {
+  return Math.max(LIMIT_MS_FLOOR, Math.round(syllables * LIMIT_MS_PER_SYLLABLE));
+}
+// 최소 읽기시간(ms) — 이 전에는 '다음'이 잠긴다
+function minReadFor(syllables) {
+  return Math.round(syllables * MIN_MS_PER_SYLLABLE);
 }

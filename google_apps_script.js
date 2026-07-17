@@ -34,6 +34,7 @@ function doPost(e) {
     const analysis = getSheet(ss, 'analysis', [
       '제출시각', '참가자ID', '국어등급', '배경지식',
       '지문', '명제ID', '주제', '명제난이도', '병목점수',
+      '읽기조건', '시간제한(ms)', '자동넘김',
       '안긴절', '명사화', '피동', '절밀도', '음절수', '어절수',
       '총읽기시간(ms)', '어절당읽기(ms)', '음절당읽기(ms)', '재읽기횟수',
       '해당문항수', '해당정답수', '해당정답률(%)',
@@ -44,6 +45,7 @@ function doPost(e) {
       analysis.appendRow([
         when, s.pid, s.grade, s.priorKnowledge,
         u.passageTitle, u.unitId, u.topic, u.levelLabel, u.bottleneckScore,
+        u.timeCondition === 'limited' ? '제한' : '자유', u.timeLimitMs || '', u.autoAdvanced ? 'Y' : 'N',
         u.embeds, u.nominal, u.passive, u.clauseDensity, u.syllables, u.words,
         u.totalDwellMs, u.msPerWord, u.msPerSyllable, u.rereads,
         qs.length, nCorrect, qs.length ? Math.round(nCorrect / qs.length * 100) : '',
@@ -53,7 +55,7 @@ function doPost(e) {
     // ── 2. quiz_responses ──
     const quizSheet = getSheet(ss, 'quiz_responses', [
       '제출시각', '참가자ID',
-      '지문', '문항ID', '유형', '근거명제', '근거명제난이도', '병목점수',
+      '지문', '문항ID', '유형', '근거명제', '근거명제난이도', '병목점수', '근거명제_읽기조건',
       '선택지', '정답여부', '확신도', '응답시간(ms)',
       '근거명제_총읽기(ms)', '근거명제_어절당(ms)', '근거명제_재읽기',
       '이해착각', '진짜이해', '우연정답',
@@ -62,6 +64,7 @@ function doPost(e) {
       quizSheet.appendRow([
         when, s.pid,
         q.passageId, q.qid, q.type, q.sourceUnit, q.levelLabel, q.bottleneckScore,
+        q.srcTimeCondition === 'limited' ? '제한' : '자유',
         q.chosen, q.correct, q.confidence, q.responseMs,
         q.srcTotalMs, q.srcMsPerWord, q.srcRereads,
         q.illusion, q.trueUnderstanding, q.luckyGuess,
@@ -74,6 +77,7 @@ function doPost(e) {
     const participants = getSheet(ss, 'participants', [
       '제출시각', '참가자ID', '국어등급', '배경지식', '배정방식',
       '평균병목점수', '평균어절당읽기(ms)',
+      '주의점검통과', '자유_정답률(%)', '제한_정답률(%)',
       '전체정답수', '전체문항수', '전체정답률(%)',
       '회상정답', '통합정답', '추론정답',
       '지문A_정답', '지문A_어절당ms', '지문B_정답', '지문B_어절당ms',
@@ -81,11 +85,15 @@ function doPost(e) {
       '읽기시작', '읽기완료',
     ]);
     const scoreT = sm.scoreByType || {};
+    const bt = sm.byTime || { free: {}, limited: {} };
     const A = pids[0] ? bp[pids[0]] : {};
     const B = pids[1] ? bp[pids[1]] : {};
     participants.appendRow([
       when, s.pid, s.grade, s.priorKnowledge, '무작위',
       sm.meanBottleneck, sm.meanMsPerWord,
+      sm.attentionPassed ? 'Y' : 'N',
+      (bt.free && bt.free.accuracy != null) ? bt.free.accuracy : '',
+      (bt.limited && bt.limited.accuracy != null) ? bt.limited.accuracy : '',
       sm.totalCorrect, sm.totalQuestions,
       sm.totalQuestions ? Math.round(sm.totalCorrect / sm.totalQuestions * 100) : 0,
       scoreT.recall || 0, scoreT.integration || 0, scoreT.inference || 0,
