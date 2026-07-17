@@ -113,8 +113,26 @@ function doPost(e) {
   }
 }
 
+// 기존 시트가 있으면 헤더가 최신인지 확인한다.
+// 헤더가 다르면(예전 버전) 그 시트를 '_old_날짜'로 보관용 이름을 바꾸고
+// 최신 헤더로 새 시트를 만든다 → 컬럼이 어긋난 채 데이터가 쌓이는 사고 방지.
 function getSheet(ss, name, header) {
-  let sh = ss.getSheetByName(name);
+  var sh = ss.getSheetByName(name);
+  if (sh) {
+    var lastCol = sh.getLastColumn();
+    var cur = lastCol ? sh.getRange(1, 1, 1, lastCol).getValues()[0] : [];
+    var same = (cur.length === header.length);
+    if (same) {
+      for (var i = 0; i < header.length; i++) {
+        if (cur[i] !== header[i]) { same = false; break; }
+      }
+    }
+    if (!same) {
+      var stamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'MMdd_HHmm');
+      sh.setName(name + '_old_' + stamp);
+      sh = null;
+    }
+  }
   if (!sh) { sh = ss.insertSheet(name); sh.appendRow(header); sh.setFrozenRows(1); }
   return sh;
 }
